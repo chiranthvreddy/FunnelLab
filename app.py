@@ -5,6 +5,7 @@ import streamlit as st
 
 from funnellab.data import generate_users, generate_activity, generate_experiment
 from funnellab.analytics import funnel, segment_funnel, retention, experiment_summary, rice_score
+from funnellab.decisions import decision_memo, validate_opportunities
 
 st.set_page_config(page_title="FunnelLab | Growth Studio", page_icon="📈", layout="wide")
 st.markdown("""<style>
@@ -21,7 +22,7 @@ def demo_data():
 users, activity, experiment = demo_data()
 st.title("FunnelLab")
 st.caption("PRODUCT GROWTH STUDIO  /  Independent passion project  /  Synthetic data only")
-st.markdown("Diagnose conversion friction, inspect retention, evaluate experiments, and decide what to build next.")
+st.markdown("**Scenario: TeamNest**, a fictional freemium collaboration product. Diagnose onboarding friction, test hypotheses, and write a product decision memo.")
 
 with st.sidebar:
     st.header("Analysis controls")
@@ -68,7 +69,7 @@ with tabs[1]:
 
 with tabs[2]:
     st.subheader("Weekly retention cohorts")
-    st.caption("Cohort membership = activated users grouped by signup week; week 0 is the baseline.")
+    st.caption("Cohorts are grouped by signup week; denominator is activated users from that signup cohort. Week N represents simulated activity N weeks after activation, not N calendar weeks after signup.")
     active_users = selected.loc[selected.activate]
     selected_activity = activity.loc[activity.user_id.isin(active_users.user_id)]
     ret = retention(selected, selected_activity)
@@ -115,26 +116,51 @@ with tabs[3]:
 
 with tabs[4]:
     st.subheader("Opportunity prioritization")
-    st.markdown("Adjust assumptions and see how product priorities change. All reach and impact values are hypothetical.")
+    st.markdown("Edit the individual opportunity assumptions and turn the results into a downloadable product decision. All values are hypothetical.")
     items = [
         ("Mobile onboarding simplification", 2100, 1.8, .75, 5),
         ("Referral onboarding guidance", 900, 1.5, .70, 3),
         ("Activation reminder sequence", 1600, 1.2, .65, 4),
         ("Checkout trust signals", 700, 1.4, .60, 4),
     ]
-    confidence = st.slider("Scenario: confidence multiplier", .5, 1.0, 1.0, .05)
-    effort = st.slider("Scenario: engineering effort multiplier", .5, 2.0, 1.0, .1)
-    backlog = pd.DataFrame([{
-        "Opportunity": name, "Reach / quarter (assumed)": reach,
-        "Impact (assumed)": impact, "Confidence": round(conf*confidence, 2),
-        "Effort (person-weeks)": round(eff*effort, 1),
-        "RICE": round(rice_score(reach, impact, conf*confidence, eff*effort), 1)
-    } for name,reach,impact,conf,eff in items]).sort_values("RICE", ascending=False)
-    st.dataframe(backlog, use_container_width=True, hide_index=True)
-    st.plotly_chart(px.bar(backlog, x="RICE", y="Opportunity", orientation="h",
-                           title="RICE opportunity ranking"), use_container_width=True)
-    st.download_button("Download opportunity backlog", backlog.to_csv(index=False), "opportunities.csv", "text/csv")
-    st.markdown("**Decision principle:** Prioritize learning about the largest uncertain conversion bottleneck, not simply the largest dashboard number.")
+    default_rows = pd.DataFrame([
+        {"opportunity": name, "reach": reach, "impact": impact, "confidence": conf, "effort": eff}
+        for name, reach, impact, conf, eff in items
+    ])
+    edited = st.data_editor(
+        default_rows, num_rows="dynamic", hide_index=True, use_container_width=True,
+        column_config={
+            "opportunity": st.column_config.TextColumn("Opportunity", required=True),
+            "reach": st.column_config.NumberColumn("Reach / quarter (assumed)", min_value=0, step=100),
+            "impact": st.column_config.NumberColumn("Impact (assumed)", min_value=0.0, step=0.1),
+            "confidence": st.column_config.NumberColumn("Confidence (0–1)", min_value=0.0, max_value=1.0, step=0.05),
+            "effort": st.column_config.NumberColumn("Effort (person-weeks)", min_value=0.1, step=0.5),
+        },
+        key="opportunity_editor",
+    )
+    rows = edited.to_dict("records")
+    try:
+        validate_opportunities(rows)
+        backlog = edited.copy()
+        backlog["RICE"] = backlog.apply(lambda r: rice_score(r["reach"], r["impact"], r["confidence"], r["effort"]), axis=1)
+        backlog = backlog.sort_values("RICE", ascending=False)
+        st.dataframe(backlog, use_container_width=True, hide_index=True)
+        st.plotly_chart(px.bar(backlog, x="RICE", y="opportunity", orientation="h",
+                               title="Scenario-based RICE ranking"), use_container_width=True)
+        st.download_button("Download opportunity backlog", backlog.to_csv(index=False), "opportunities.csv", "text/csv")
+        st.markdown("### Product decision memo")
+        problem = st.text_area("Problem statement", "Mobile visitors appear less likely to activate; the cause is not yet validated.")
+        evidence = st.text_area("Evidence and uncertainty", "Synthetic funnel segments show differences. Channel mix and user intent are alternative explanations.")
+        hypothesis = st.text_area("Testable hypothesis", "A shorter mobile onboarding flow improves first-value activation.")
+        guardrail = st.text_input("Guardrail", "No meaningful increase in checkout or onboarding errors.")
+        next_step = st.text_input("Next action", "Interview target users, instrument real activation, then preregister an experiment.")
+        memo = decision_memo(problem, evidence, hypothesis, rows, guardrail, next_step)
+        st.download_button("Download decision memo (.md)", memo, "funnellab_decision_memo.md", "text/markdown")
+        with st.expander("Preview memo"):
+            st.markdown(memo)
+    except (ValueError, TypeError, KeyError) as exc:
+        st.error(f"Correct the opportunity inputs to continue: {exc}")
+    st.caption("RICE ranks assumed opportunities; it is not a measured forecast or causal estimate.")
 
 with tabs[5]:
     st.subheader("Metric dictionary")
