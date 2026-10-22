@@ -33,6 +33,7 @@ In Streamlit Community Cloud, select this repository, branch `main`, and entrypo
 - `docs/EXPERIMENT_PLAN.md` — guardrails and experiment interpretation
 - `docs/INTERVIEW_GUIDE.md` — interview-ready walkthrough
 - `docs/PRODUCT_SCENARIO.md` — concrete fictional product, activation definition and competing hypotheses
+- `docs/ARCHITECTURE.md` — architecture, tracking contract and retention caveats
 - `docs/VALIDATION_PLAN.md` — genuine future research plan, not fabricated findings
 - `funnellab/decisions.py` — editable RICE validation and decision memo generation
 
